@@ -1,0 +1,15 @@
+FROM python:3.7
+
+ENV uwsgi_processes 1
+ENV py_autoreload 0
+ENV server_path /opt/app
+
+WORKDIR $server_path
+
+ADD requirements.txt $server_path
+RUN pip3 install --upgrade pip && \
+    pip3 install -I -r requirements.txt --no-cache-dir
+
+CMD uwsgi --http :8000 --master --enable-threads --processes ${uwsgi_processes} \
+          --single-interpreter --module weather_app.wsgi --py-autoreload ${py_autoreload} \
+          --buffer-size 8192 --harakiri 120

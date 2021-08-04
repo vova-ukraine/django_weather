@@ -1,0 +1,86 @@
+version: '3.4'
+
+x-server-volume:
+  &server
+  type: bind
+  source: ./app
+  target: /opt/app
+  consistency: cached
+
+services:
+  # nginx?
+  app:
+    build:
+      context: ./
+      dockerfile: $PWD/Dockerfile.dev
+    image: &server_image server
+    depends_on:
+      - "postgres"
+    volumes:
+      - *server
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      # TODO: Move to &env
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=mypass
+      - py_autoreload=1
+
+  worker:
+    image: *server_image
+    restart: always
+    environment: &celery_env
+      - C_FORCE_ROOT=true
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=mypass
+    depends_on:
+      - "rabbitmq"
+      - "postgres"
+    volumes:
+      - *server
+    command: celery worker -A weather_app -Q weather_app -l info
+
+  beat:
+    image: *server_image
+    environment: *celery_env
+    depends_on:
+      - "rabbitmq"
+      - "postgres"
+    volumes:
+      - *server
+    command: celery -A weather_app beat -l info
+
+  postgres:
+    image: postgres:11.5
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "password"
+      POSTGRES_DATABASE: "weather_app"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgresql-database:/var/lib/postgresql/data:delegated
+
+  rabbitmq:
+    image: rabbitmq:management
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=mypass
+    ports:
+      - "5673:5672"
+
+volumes:
+  nginx-ssl:
+    driver: local
+    driver_opts:
+      type: none
+      device: "$PWD/containers/nginx/ssl"
+      o: bind
+  postgresql-database:
+    name: postgresql-database
